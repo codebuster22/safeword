@@ -96,6 +96,13 @@ This deploys two contracts (both verified on Polygonscan):
 - `GuardFactory` — anyone can call `factory.deploy(adminAddress, whitelist)` to create their own `TradingGuard`
 - `TradingGuard` — a standalone instance for verification only; all factory-deployed guards inherit verification via similar-match
 
+### Deployed Contracts (Polygon Mainnet)
+
+| Contract | Address |
+|----------|---------|
+| `GuardFactory` | [`0x5120F677C9a453AC960eCA1fb274D25D96aAAdC5`](https://polygonscan.com/address/0x5120F677C9a453AC960eCA1fb274D25D96aAAdC5) |
+| `TradingGuard` (verification only) |  |
+
 ### 2. Deploy your Guard
 
 Call the deployed factory to create your own `TradingGuard`:
