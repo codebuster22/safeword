@@ -145,6 +145,13 @@ contract TradingGuardTest is Test {
         );
     }
 
+    function test_trading_blocksGasRefund() public {
+        vm.expectRevert(TradingGuard.GasRefundNotAllowed.selector);
+        mockSafe.execThroughGuardWithGasParams(
+            guard, whitelistedTarget, 0, "", Enum.Operation.Call, 1, botKey
+        );
+    }
+
     // ═══════════════════════════════════════════════════
     // Step 4: Unlocked Mode
     // ═══════════════════════════════════════════════════
@@ -253,12 +260,28 @@ contract TradingGuardTest is Test {
         );
     }
 
-    function test_failSafe_blocksOwner() public {
+    function test_failSafe_allowsAdmin() public {
         vm.prank(owner);
         guard.switchToFailSafe();
-        vm.expectRevert(TradingGuard.FailSafeActive.selector);
         mockSafe.execThroughGuard(
             guard, whitelistedTarget, 0, "", Enum.Operation.Call, owner
+        );
+    }
+
+    function test_failSafe_adminFullAccess() public {
+        vm.prank(owner);
+        guard.switchToFailSafe();
+        // Non-whitelisted target
+        mockSafe.execThroughGuard(
+            guard, randomAddr, 0, "", Enum.Operation.Call, owner
+        );
+        // Self-call
+        mockSafe.execThroughGuard(
+            guard, address(mockSafe), 0, "", Enum.Operation.Call, owner
+        );
+        // Delegatecall
+        mockSafe.execThroughGuard(
+            guard, randomAddr, 0, "", Enum.Operation.DelegateCall, owner
         );
     }
 
@@ -269,7 +292,7 @@ contract TradingGuardTest is Test {
         guard.switchToFailSafe();
         vm.expectRevert(TradingGuard.FailSafeActive.selector);
         mockSafe.execThroughGuard(
-            guard, randomAddr, 0, "", Enum.Operation.Call, owner
+            guard, randomAddr, 0, "", Enum.Operation.Call, botKey
         );
     }
 

@@ -27,4 +27,21 @@ contract MockSafe {
             msgSender
         );
     }
+
+    function execThroughGuardWithGasParams(
+        IGuard guard,
+        address to,
+        uint256 value,
+        bytes memory data,
+        Enum.Operation operation,
+        uint256 gasPrice,
+        address msgSender
+    ) external {
+        guard.checkTransaction(
+            to, value, data, operation,
+            0, 0, gasPrice,
+            address(0), payable(address(0)),
+            "", msgSender
+        );
+    }
 }

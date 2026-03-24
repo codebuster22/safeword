@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {GuardFactory} from "../src/GuardFactory.sol";
 import {TradingGuard} from "../src/TradingGuard.sol";
 import {IGuard} from "../src/interfaces/IGuard.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 contract GuardFactoryTest is Test {
     GuardFactory public factory;
@@ -39,7 +40,7 @@ contract GuardFactoryTest is Test {
 
     function test_deploy_incrementsCount() public {
         factory.deploy(guardOwner, whitelist);
-        assertEq(factory.deployCount(), 1);
+        assertEq(factory.deployCount(address(this)), 1);
     }
 
     function test_deploy_emitsEvent() public {
@@ -53,7 +54,7 @@ contract GuardFactoryTest is Test {
         address g2 = factory.deploy(guardOwner, whitelist);
         address g3 = factory.deploy(guardOwner, whitelist);
 
-        assertEq(factory.deployCount(), 3);
+        assertEq(factory.deployCount(address(this)), 3);
         assertTrue(g1 != g2 && g2 != g3 && g1 != g3);
     }
 
@@ -63,7 +64,7 @@ contract GuardFactoryTest is Test {
 
     function test_deploy_withSalt_deterministic() public {
         bytes32 salt = keccak256("test-salt");
-        address predicted = factory.computeAddress(guardOwner, whitelist, salt);
+        address predicted = factory.computeAddress(address(this), guardOwner, whitelist, salt);
         address actual = factory.deploy(guardOwner, whitelist, salt);
         assertEq(predicted, actual);
     }
@@ -84,7 +85,7 @@ contract GuardFactoryTest is Test {
 
     function test_computeAddress_matchesActual() public {
         bytes32 salt = keccak256("compute-test");
-        address predicted = factory.computeAddress(guardOwner, whitelist, salt);
+        address predicted = factory.computeAddress(address(this), guardOwner, whitelist, salt);
         address actual = factory.deploy(guardOwner, whitelist, salt);
         assertEq(predicted, actual);
     }
@@ -101,5 +102,30 @@ contract GuardFactoryTest is Test {
     function test_deploy_guardSupportsInterface() public {
         address guard = factory.deploy(guardOwner, whitelist);
         assertTrue(TradingGuard(guard).supportsInterface(type(IGuard).interfaceId));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // Security fixes
+    // ═══════════════════════════════════════════════════
+
+    function test_deploy_countIsPerDeployer() public {
+        factory.deploy(guardOwner, whitelist);
+        vm.prank(makeAddr("other"));
+        factory.deploy(guardOwner, whitelist);
+        assertEq(factory.deployCount(address(this)), 1);
+        assertEq(factory.deployCount(makeAddr("other")), 1);
+    }
+
+    function test_deploy_withSalt_boundToCaller() public {
+        bytes32 salt = keccak256("same-salt");
+        address g1 = factory.deploy(guardOwner, whitelist, salt);
+        vm.prank(makeAddr("other"));
+        address g2 = factory.deploy(guardOwner, whitelist, salt);
+        assertTrue(g1 != g2);
+    }
+
+    function test_deploy_revertsOnZeroOwner() public {
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableInvalidOwner.selector, address(0)));
+        factory.deploy(address(0), whitelist);
     }
 }

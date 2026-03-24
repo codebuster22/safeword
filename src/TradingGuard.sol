@@ -18,6 +18,7 @@ contract TradingGuard is BaseGuard, Ownable {
     error SelfCallBlocked();
     error TargetNotWhitelisted(address target);
     error FailSafeActive();
+    error GasRefundNotAllowed();
 
     // --- Events ---
     event ModeChanged(Mode indexed previousMode, Mode indexed newMode);
@@ -28,6 +29,10 @@ contract TradingGuard is BaseGuard, Ownable {
     mapping(address => bool) public whitelisted;
 
     // --- Constructor ---
+    /// @param _initialOwner Admin address that controls mode switching and whitelist.
+    ///        Must be an EOA (hardware wallet recommended), NOT the Safe address.
+    ///        Setting owner to the Safe itself will permanently brick the guard
+    ///        because the Safe cannot call onlyOwner functions through the guard in Trading mode.
     constructor(address _initialOwner, address[] memory _initialWhitelist) Ownable(_initialOwner) {
         mode = Mode.Trading;
         for (uint256 i = 0; i < _initialWhitelist.length; i++) {
@@ -44,22 +49,26 @@ contract TradingGuard is BaseGuard, Ownable {
         Enum.Operation operation,
         uint256,
         uint256,
-        uint256,
+        uint256 gasPrice,
         address,
         address payable,
         bytes memory,
-        address
+        address msgSender
     ) external override {
-        // FailSafe mode — block everything
-        if (mode == Mode.FailSafe) revert FailSafeActive();
+        // FailSafe mode — admin-only lockdown
+        if (mode == Mode.FailSafe) {
+            if (msgSender != owner()) revert FailSafeActive();
+            return;
+        }
 
-        // Unlocked mode — allow all transactions, owner must manually lock back
+        // Unlocked mode — allow all transactions
         if (mode == Mode.Unlocked) return;
 
         // Trading mode — enforce all restrictions
         if (operation == Enum.Operation.DelegateCall) revert DelegatecallBlocked();
         if (to == msg.sender) revert SelfCallBlocked();
         if (!whitelisted[to]) revert TargetNotWhitelisted(to);
+        if (gasPrice != 0) revert GasRefundNotAllowed();
     }
 
     function checkAfterExecution(bytes32, bool) external override {}

@@ -97,7 +97,7 @@ contract TradingGuardInvariantTest is Test {
         assertEq(uint8(guard.mode()), uint8(handler.currentMode()));
     }
 
-    function invariant_failSafeBlocksAll() external {
+    function invariant_failSafeBlocksNonAdmin() external {
         if (guard.mode() != TradingGuard.Mode.FailSafe) return;
 
         vm.expectRevert(TradingGuard.FailSafeActive.selector);

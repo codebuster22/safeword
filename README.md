@@ -29,7 +29,7 @@ Three modes, controlled by the admin key:
 |------|-------------|
 | **Trading** (default) | Only calls to whitelisted Polymarket contracts allowed. Delegatecalls and self-calls are blocked. |
 | **Unlocked** | All transactions allowed. Admin uses this to withdraw funds, manage owners, etc. Must manually switch back to Trading. |
-| **FailSafe** | Everything blocked. The nuclear option — use when you suspect compromise and need to freeze all activity. |
+| **FailSafe** | Only admin-initiated transactions allowed. Use when you suspect compromise — locks out the bot key while retaining admin access for recovery. |
 
 ### What a compromised bot key CAN'T do
 
@@ -38,6 +38,8 @@ Three modes, controlled by the admin key:
 - Remove or change the Guard (self-calls blocked)
 - Enable modules (self-calls blocked)
 - Execute delegatecalls (delegatecalls blocked)
+- Drain funds via gas refund parameters (gasPrice must be zero in Trading mode)
+- Transact through the Safe in FailSafe mode (admin-only)
 
 ### What a compromised bot key CAN do
 
@@ -45,7 +47,7 @@ Three modes, controlled by the admin key:
 - Cancel orders on-chain
 - Bump exchange nonces
 
-**Response to compromise:** Admin calls `switchToFailSafe()` to freeze everything, then `switchToUnlocked()` to remove the compromised bot key and revoke approvals.
+**Response to compromise:** Admin calls `switchToFailSafe()` to lock out the bot key, then removes the compromised key and revokes approvals directly in FailSafe mode. Switch back to Trading when done.
 
 ## Quick Start
 
@@ -76,32 +78,40 @@ cp .env.example .env
 source .env && forge test -vvv
 ```
 
-The test suite includes 87 tests across unit, fork (Polygon mainnet), invariant (stateful fuzzing), and script tests.
+The test suite includes tests across unit, fork (Polygon mainnet), invariant (stateful fuzzing), and script tests.
 
 ## Deployment
 
-### 1. Deploy the Guard
+### 1. Deploy the Factory
 
 Set environment variables in `.env`:
-- `OWNER_PRIVATE_KEY` — private key of a current Safe owner
-- `ADMIN_ADDRESS` — address of the admin key (hardware wallet recommended)
+- `OWNER_PRIVATE_KEY` — private key of the deployer
+- `ETHERSCAN_API_KEY` — Polygonscan API key (for contract verification)
 
 ```bash
-source .env && forge script script/DeployGuard.s.sol --rpc-url $POLYGON_RPC_URL --broadcast
+source .env && forge script script/DeployGuard.s.sol --rpc-url $POLYGON_RPC_URL --broadcast --verify
 ```
 
-This deploys a `GuardFactory` and a `TradingGuard` with the three Polymarket contracts pre-whitelisted:
-- CTFExchange (`0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E`)
-- NegRiskCTFExchange (`0xC5d563A36AE78145C45a50134d48A1215220f80a`)
-- NegRiskAdapter (`0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296`)
+This deploys two contracts (both verified on Polygonscan):
+- `GuardFactory` — anyone can call `factory.deploy(adminAddress, whitelist)` to create their own `TradingGuard`
+- `TradingGuard` — a standalone instance for verification only; all factory-deployed guards inherit verification via similar-match
 
-To also set the guard on your Safe in the same transaction, add:
+### 2. Deploy your Guard
 
-```bash
-SET_GUARD=true SAFE_ADDRESS=<your-safe> forge script script/DeployGuard.s.sol --rpc-url $POLYGON_RPC_URL --broadcast
+Call the deployed factory to create your own `TradingGuard`:
+
+```solidity
+address guard = factory.deploy(adminAddress, whitelist);
 ```
 
-### 2. Add an admin owner to your Safe
+- `adminAddress` — your admin key (hardware wallet recommended), becomes the guard owner who controls mode switching and whitelist
+- `whitelist` — array of allowed target addresses (e.g. the three Polymarket contracts listed in [Whitelisted Polymarket Contracts](#whitelisted-polymarket-contracts-polygon))
+
+### 3. Set the Guard on your Safe
+
+Call `setGuard(guardAddress)` on your Safe. This is a self-call — execute it via `execTransaction` or the [Safe Transaction Builder](https://app.safe.global).
+
+### 4. Add an admin owner to your Safe
 
 ```bash
 NEW_OWNER=<admin-address> forge script script/AddOwner.s.sol --rpc-url $POLYGON_RPC_URL --broadcast
@@ -111,20 +121,11 @@ See the [Security](#security) section for bypass protection details.
 
 ## Contracts
 
-| Contract | Description | Lines |
-|----------|-------------|-------|
-| `TradingGuard` | Core guard — mode switching, whitelist enforcement, transaction filtering | 90 |
-| `GuardFactory` | CREATE2 factory for deterministic guard deployment | 42 |
-| `BaseGuard` | Abstract base with ERC-165 interface detection | 12 |
-
-### Whitelisted Polymarket Contracts (Polygon)
-
-| Contract | Address | Why Safe |
-|----------|---------|----------|
-| CTFExchange | `0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E` | `cancelOrder`, `incrementNonce` — no fund movement |
-| NegRiskCTFExchange | `0xC5d563A36AE78145C45a50134d48A1215220f80a` | Same as CTFExchange |
-| NegRiskAdapter | `0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296` | `convertPositions`, `splitPosition`, `mergePositions`, `redeemPositions` — funds cycle back to Safe |
-
+| Contract | Description |
+|----------|-------------|
+| `TradingGuard` | Core guard — mode switching, whitelist enforcement, transaction filtering |
+| `GuardFactory` | CREATE2 factory for deterministic guard deployment |
+| `BaseGuard` | Abstract base with ERC-165 interface detection |
 ## Security
 
 This contract has **not been audited**. Use at your own risk.
@@ -135,6 +136,7 @@ The guard blocks all known Gnosis Safe bypass vectors in Trading mode:
 - **Self-calls** (owner/guard/module management) — `to == msg.sender` blocked
 - **Module bypass** — `enableModule` is a self-call, blocked; no modules should be enabled pre-deployment
 - **Approved hash** — `approveHash` is a self-call, blocked
+- **Gas refund drain** — `gasPrice != 0` rejected in Trading mode; Safe's `handlePayment` never executes
 
 > **Note:** ETH transfers to whitelisted targets are technically allowed, but Polymarket contracts do not accept ETH.
 

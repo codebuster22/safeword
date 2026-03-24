@@ -52,7 +52,7 @@ contract TradingGuardForkTest is Test {
         this.execOnSafe(SAFE_ADDR, 0, setGuardData, Enum.Operation.Call);
     }
 
-    // --- Helper (public so vm.expectRevert can wrap the entire call via this.execOnSafe) ---
+    // --- Helpers (public so vm.expectRevert can wrap the entire call via this.execOnSafe) ---
     function execOnSafe(
         address to,
         uint256 value,
@@ -67,6 +67,26 @@ contract TradingGuardForkTest is Test {
         );
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(TEST_PK, txHash);
         bytes memory sig = abi.encodePacked(r, s, v);
+        return safe.execTransaction(
+            to, value, data, op,
+            100000, 0, 0, address(0), payable(address(0)), sig
+        );
+    }
+
+    function execOnSafeAsOwner(
+        address to,
+        uint256 value,
+        bytes memory data,
+        Enum.Operation op
+    ) public returns (bool) {
+        uint256 nonce = safe.nonce();
+        bytes32 txHash = safe.getTransactionHash(
+            to, value, data, op,
+            100000, 0, 0, address(0), address(0), nonce
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(TEST_PK, txHash);
+        bytes memory sig = abi.encodePacked(r, s, v);
+        vm.prank(testOwner);
         return safe.execTransaction(
             to, value, data, op,
             100000, 0, 0, address(0), payable(address(0)), sig
@@ -179,5 +199,30 @@ contract TradingGuardForkTest is Test {
         vm.prank(testOwner);
         guard.switchToTrading();
         this.execOnSafe(CTF_EXCHANGE, 0, "", Enum.Operation.Call);
+    }
+
+    // ═══════════════════════════════════════════════════
+    // Security Fixes
+    // ═══════════════════════════════════════════════════
+
+    function test_fork_failSafeAllowsAdmin() public {
+        vm.prank(testOwner);
+        guard.switchToFailSafe();
+        this.execOnSafeAsOwner(CTF_EXCHANGE, 0, "", Enum.Operation.Call);
+    }
+
+    function test_fork_tradingBlocksGasRefund() public {
+        uint256 nonce = safe.nonce();
+        bytes32 txHash = safe.getTransactionHash(
+            CTF_EXCHANGE, 0, "", Enum.Operation.Call,
+            100000, 0, 1, address(0), address(0), nonce
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(TEST_PK, txHash);
+        bytes memory sig = abi.encodePacked(r, s, v);
+        vm.expectRevert(TradingGuard.GasRefundNotAllowed.selector);
+        safe.execTransaction(
+            CTF_EXCHANGE, 0, "", Enum.Operation.Call,
+            100000, 0, 1, address(0), payable(address(0)), sig
+        );
     }
 }

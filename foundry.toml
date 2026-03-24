@@ -8,3 +8,6 @@ remappings = ["@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/"]
 
 [rpc_endpoints]
 polygon = "${POLYGON_RPC_URL}"
+
+[etherscan]
+polygon = { key = "${ETHERSCAN_API_KEY}", url = "https://api.polygonscan.com/api" }
